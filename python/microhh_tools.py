@@ -139,6 +139,20 @@ class Read_namelist:
             self.groups[group] = {}
         self.groups[group][variable] = value
 
+    
+    def remove_value(self, group, variable=None):
+        """
+        Remove value or group in namelist
+        If only group is given, the entire group will be removed
+        """
+        if group in self.groups:
+            if variable is None:
+                self.groups.pop(group)
+            else:
+                if variable in self.groups[group]:
+                    self.groups[group].pop(variable)
+
+
 
     def save(self, namelist_file, allow_overwrite=False):
         """
