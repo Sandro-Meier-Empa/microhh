@@ -21,7 +21,7 @@
 #
 
 import os
-import microhh_tools as mht  # available in microhh/python directory
+from . import microhh_tools as mht
 import argparse
 import collections
 import glob

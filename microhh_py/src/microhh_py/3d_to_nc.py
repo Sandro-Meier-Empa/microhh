@@ -20,7 +20,7 @@
 #  along with MicroHH.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-import microhh_tools as mht     # available in microhh/python directory
+from . import microhh_tools as mht
 import argparse
 import os
 import glob

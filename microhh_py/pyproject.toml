@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["microhh_py*"]
+
+[project]
+name = "microhh_py"
+version = "1.0.0"
+description = "Python tools for working with microHH"
+readme = "README.md"
+authors = [{ name = "microHH authors"}]
+license = { file = "LICENSE.txt" }
+classifiers = [
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+]
+keywords = ["microHH", "large-eddy simulation"]
+dependencies = [
+    "numpy",
+    "netCDF4",
+    "scipy",
+    "matplotlib",
+    "xarray"
+
+]
+requires-python = ">=3.6"
+
+
+[project.urls]
+Homepage = "https://github.com/microhh/microhh"
