@@ -53,7 +53,8 @@ else()
     set(FFTWF_LIB "fftw3f")
     set(HDF5_LIB "hdf5")
     set(LIBS -L/user-environment/env/default/lib -L/user-environment/env/default/lib64 ${FFTW_LIB} ${FFTWF_LIB} ${NETCDF_LIB_C} ${HDF5_LIB}) #It may be necessary to add m z curl sz if necessary
-
+endif()
+    
 # Set compiler flags / options:
 if(USECUDA)
     set(USER_CXX_FLAGS "-std=c++17 -fopenmp")
