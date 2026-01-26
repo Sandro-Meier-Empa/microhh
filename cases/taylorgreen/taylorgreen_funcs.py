@@ -1,5 +1,5 @@
 import numpy as np
-import microhh_tools as mht
+from microhh_py import microhh_tools as mht
 
 class Parse_TaylorGreen:
     def __init__(self, time, visc, path):

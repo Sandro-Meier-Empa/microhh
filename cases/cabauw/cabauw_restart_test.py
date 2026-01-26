@@ -10,7 +10,7 @@ import itertools
 import numpy as np
 
 from cabauw_input import create_case_input
-import microhh_tools as mht
+from microhh_py import microhh_tools as mht
 
 def clean_dir(path):
     files = glob.glob(f'{path}/*')

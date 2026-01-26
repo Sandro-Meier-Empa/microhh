@@ -4,8 +4,7 @@ import os
 import copy
 import shutil
 
-sys.path.append('../../python/')
-import microhh_tools as mht
+from microhh_py import microhh_tools as mht
 
 # Case configuration dicts
 no_opts = {}

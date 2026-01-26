@@ -1,7 +1,7 @@
 import numpy as np
 import xarray as xr
 
-import microhh_tools as mht
+from microhh_py import microhh_tools as mht
 
 def xr_read_all(f, groups=['default'], decode_times=True):
     # Read all NetCDF groups into a single Dataset.
@@ -10,7 +10,7 @@ def xr_read_all(f, groups=['default'], decode_times=True):
         dss.append(xr.open_dataset(f, group=group, decode_times=decode_times))
     return xr.merge(dss)
 
-dtype = np.float32
+dtype = np.float64
 
 ini = mht.Read_namelist('dispersion.ini')
 

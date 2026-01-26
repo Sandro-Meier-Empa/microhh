@@ -1,10 +1,9 @@
 import sys, os
 
-sys.path.append('../python/')
-import microhh_tools as mht
+from microhh_py import microhh_tools as mht
 
-#import taylorgreen.taylorgreenconv as tg
-#import conservation.run_conservation as conv
+# import taylorgreen.taylorgreenconv as tg
+# import conservation.run_conservation as conv
 
 modes = ['cpu', 'cpumpi', 'gpu']
 precs = ['dp', 'sp']

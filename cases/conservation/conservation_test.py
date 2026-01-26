@@ -3,8 +3,7 @@ import numpy as np
 import netCDF4 as nc
 from matplotlib import pyplot as plt
 
-sys.path.append('../../python/')
-import microhh_tools as mht
+from microhh_py import microhh_tools as mht
 from . import conservation_funcs
 
 no_opts = {}

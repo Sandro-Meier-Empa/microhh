@@ -3,8 +3,7 @@ import xarray as xr
 import numpy as np
 import os, shutil
 
-# Available in `microhh_root/python`:
-import microhh_tools as mht
+from microhh_py import microhh_tools as mht
 
 def add_nc_var(name, dims, nc, data):
     """

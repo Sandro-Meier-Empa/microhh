@@ -1,6 +1,6 @@
 import numpy as np
 import netCDF4 as nc
-import microhh_tools as mht
+from microhh_py import microhh_tools as mht
 from scipy.interpolate import interp1d
 
 float_type = 'f8'

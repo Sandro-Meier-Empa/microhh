@@ -1,7 +1,6 @@
 import sys, os
 
-sys.path.append('../python/')
-import microhh_tools as mht
+from microhh_py import microhh_tools as mht
 
 import moser180.moser180_test as moser180
 import drycbl.drycbl_test as drycbl

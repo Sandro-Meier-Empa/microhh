@@ -1,7 +1,7 @@
 import sys
 import os
-sys.path.append('../python/')
-import microhh_tools as mht
+
+from microhh_py import microhh_tools as mht
 
 import taylorgreen.taylorgreen_test as taylorgreen
 import conservation.conservation_test as conservation

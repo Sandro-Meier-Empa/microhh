@@ -46,7 +46,7 @@ dumplist = T,qt,ql,qi
 
 """
 
-from . import microhh_tools as mht
+from microhh_py import microhh_tools as mht
 import numpy as np
 import netCDF4 as nc
 from scipy.interpolate import interp1d

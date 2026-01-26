@@ -1,19 +1,18 @@
 import numpy as np
 import netCDF4 as nc
 
-# Available in `microhh_root/python`:
-import microhh_tools as mht
+from microhh_py import microhh_tools as mht
 
 float_type = "f8"
 
-#T_0 = 295.
-#q_0 = 0.01200 # for 295 K SST.
+# T_0 = 295.
+# q_0 = 0.01200 # for 295 K SST.
 
 T_0 = 300.
 q_0 = 0.01864 # for 300 K SST.
 
-#T_0 = 305.
-#q_0 = 0.02400 # for 305 K SST.
+# T_0 = 305.
+# q_0 = 0.02400 # for 305 K SST.
 
 eps = 18.01528 / 28.9647 # molar mass water / molar mass air
 

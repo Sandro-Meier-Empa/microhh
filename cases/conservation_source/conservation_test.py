@@ -5,10 +5,9 @@ import subprocess
 import glob
 import os
 
-import microhh_tools as mht
+from microhh_py import microhh_tools as mht
 
-from microhh_tools import execute
-#def execute(task):
+# def mht.execute(task):
 #    return subprocess.call(task, shell=True, executable='/bin/bash')
 
 def xr_read_all(f, groups=['default'], decode_times=False):
@@ -48,7 +47,6 @@ def test_conservation(sw_thermo, sw_basestate, executable, precision):
 
     ini.save('conservation.ini', allow_overwrite=True)
 
-
     """
     2. Create NetCDF case input.
     """
@@ -74,11 +72,11 @@ def test_conservation(sw_thermo, sw_basestate, executable, precision):
     def add_var(name, dims, values, nc_group):
         nc_var = nc_group.createVariable(name, float_type, dims)
         nc_var[:] = values
-    
+
     nc_file = nc.Dataset('conservation_input.nc', mode='w', datamodel='NETCDF4')
     nc_file.createDimension('z', ktot)
     add_var('z',  ('z'), z,  nc_file)
-    
+
     nc_init = nc_file.createGroup('init');
     add_var('u',  ('z'), u,  nc_init)
 
@@ -90,15 +88,14 @@ def test_conservation(sw_thermo, sw_basestate, executable, precision):
 
     nc_file.close()
 
-
     """
     3. Run case
     """
     clean_case()   # Just to be sure case can start.
 
     status = 0
-    status += execute(f'{executable} init conservation')
-    status += execute(f'{executable} run conservation')
+    status += mht.execute(f"{executable} init conservation")
+    status += mht.execute(f"{executable} run conservation")
 
     if status > 0:
         print(f'Running case with executable {executable} failed!')

@@ -1,8 +1,7 @@
 import sys
 import numpy as np
 
-sys.path.append('../../python/')
-import microhh_tools as mht
+from microhh_py import microhh_tools as mht
 from . import taylorgreen_funcs
 
 no_opts = {}
