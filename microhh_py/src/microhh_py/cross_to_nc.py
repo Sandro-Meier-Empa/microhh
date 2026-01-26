@@ -88,7 +88,7 @@ def convert_to_nc(variables):
                     dim['zh'] = dim.pop('z')
                 ncfile = mht.Create_ncfile(
                     grid, filename, variable, dim, precision, compression)
-                
+
                 for key, val in dim.items():
                     if key == 'time':
                         continue
@@ -136,111 +136,165 @@ def convert_to_nc(variables):
                 print("Failed to create %s" % filename)
 
 
+def run(
+    directory=None,
+    filename=None,
+    vars=None,
+    modes=None,
+    indexes=None,
+    precision=None,
+    order=None,
+    starttime=None,
+    endtime=None,
+    sampletime=None,
+    nocompression=False,
+    nprocs=None,
+):
+    """
+    Run the MicroHH cross-section binary -> NetCDF conversion.
 
-# Parse command line and namelist options
-cross_modes = ['xy', 'xz', 'yz']
-parser = argparse.ArgumentParser(
-    description='Convert MicroHH binary cross-sections to netCDF4 files.')
-parser.add_argument(
-    '-m',
-    '--modes',
-    nargs='*',
-    help='mode of the cross section',
-    choices=cross_modes)
-parser.add_argument('-f', '--filename', help='ini file name')
-parser.add_argument('-d', '--directory', help='directory')
-parser.add_argument('-v', '--vars', nargs='*', help='variable names')
-parser.add_argument('-x', '--index', nargs='*', help='indices', type=int)
-parser.add_argument('-t0', '--starttime', help='first time step to be parsed')
-parser.add_argument('-t1', '--endtime', help='last time step to be parsed')
-parser.add_argument(
-    '-tstep',
-    '--sampletime',
-    help='time interval to be parsed')
-parser.add_argument(
-    '-p',
-    '--precision',
-    help='precision',
-    choices=[
-        'single',
-         'double'])
-parser.add_argument(
-    '-n',
-    '--nprocs',
-    help='Number of processes',
-    type=int,
-    default=1)
-parser.add_argument(
-    '-c',
-    '--nocompression',
-    help='do not compress the netcdf file',
-    action='store_true')
+    Parameters mirror the CLI flags:
+    - directory (str): working directory (-d/--directory)
+    - filename (str): namelist ini file (-f/--filename)
+    - vars (list[str] or str): variable names (-v/--vars)
+    - modes (list[str]): cross-section modes ('xy', 'xz', 'yz') (-m/--modes)
+    - indexes (list[int]): indices (-x/--index)
+    - precision ('single'|'double'|None): NetCDF precision (-p/--precision)
+    - order (int|None): spatial order 2 or 4 (-o/--order)
+    - starttime, endtime, sampletime (float|None): time controls (-t0/-t1/-tstep)
+    - nocompression (bool): disable compression (-c/--nocompression)
+    - nprocs (int|None): number of worker processes (-n/--nprocs)
+    """
+    cross_modes = ["xy", "xz", "yz"]
 
-parser.add_argument(
-    '-o',
-    '--order',
-    help='order',
-    choices=[
-        2, 4], type = int)
+    # 1) Working directory
+    if directory is not None:
+        os.chdir(directory)
 
-args = parser.parse_args()
+    # 2) Namelist
+    if not filename:
+        raise ValueError("filename (namelist ini) must be provided")
+    nl = mht.Read_namelist(filename)
+    itot = nl["grid"]["itot"]
+    jtot = nl["grid"]["jtot"]
+    ktot = nl["grid"]["ktot"]
 
-if args.directory is not None:
-    os.chdir(args.directory)
+    # 3) Time settings
+    starttime = starttime if starttime is not None else nl["time"]["starttime"]
+    endtime = endtime if endtime is not None else nl["time"]["endtime"]
+    sampletime = sampletime if sampletime is not None else nl["cross"]["sampletime"]
 
-modes = args.modes
-indexes = args.index
+    try:
+        iotimeprec = nl["time"]["iotimeprec"]
+    except KeyError:
+        iotimeprec = 0.0
 
-nl = mht.Read_namelist(args.filename)
-itot = nl['grid']['itot']
-jtot = nl['grid']['jtot']
-ktot = nl['grid']['ktot']
+    # 4) Modes
+    if modes is None:
+        modes = list(nl["cross"].keys() & set(cross_modes))
+        # Check if there are paths in the cross-list
+        if "xy" not in modes:
+            for v in np.atleast_1d(nl["cross"]["crosslist"]):
+                if "path" in v:
+                    modes.append("xy")
+                    break
 
-starttime = float(
-    args.starttime) if args.starttime is not None else nl['time']['starttime']
-endtime = float(
-    args.endtime) if args.endtime is not None else nl['time']['endtime']
-sampletime = float(
-    args.sampletime) if args.sampletime is not None else nl['cross']['sampletime']
+    # 5) Variables
+    variables = vars if vars is not None else nl["cross"]["crosslist"]
+    if isinstance(variables, str):
+        variables = [variables]
 
-if args.modes is None:
-    modes = list(nl['cross'].keys() & cross_modes)
+    # 6) Other settings
+    try:
+        order = order if order is not None else nl["grid"]["swspatialorder"]
+    except KeyError:
+        order = 2
 
-    # Check if there are paths in the cross-list
-    if 'xy' not in modes:
-        for v in nl['cross']['crosslist']:
-            if 'path' in v:
-                modes.append('xy')
-                break
-else:
-    modes = args.modes
+    compression = not nocompression
+    nprocs = nprocs if nprocs is not None else len(variables)
 
-if 'iotimeprec' in nl['time']:
-    iotimeprec = nl['time']['iotimeprec']
-else:
-    iotimeprec = 0.
+    # promote to globals used by convert_to_nc
+    globals().update(
+        {
+            "itot": itot,
+            "jtot": jtot,
+            "ktot": ktot,
+            "starttime": starttime,
+            "endtime": endtime,
+            "sampletime": sampletime,
+            "iotimeprec": iotimeprec,
+            "modes": modes,
+            "indexes": indexes,
+            "precision": precision,
+            "compression": compression,
+        }
+    )
 
-variables = args.vars if args.vars is not None else nl['cross']['crosslist']
+    # 7) Grid
+    grid = mht.Read_grid(itot, jtot, ktot, order=order)
+    globals().update({"grid": grid})
 
-# In case variables is a single string, convert to list.
-variables = [ variables ] if not isinstance(variables, list) else variables
+    # 8) Parallel chunks
+    chunks = [variables[i::nprocs] for i in range(max(1, nprocs))]
 
-precision = args.precision
-nprocs = args.nprocs if args.nprocs is not None else len(variables)
-compression = not(args.nocompression)
-try:
-    order = args.order if args.order is not None else nl['grid']['swspatialorder']
-except KeyError:
-    order = 2
+    # 9) Run
+    with Pool(processes=nprocs) as pool:
+        for _ in pool.imap_unordered(convert_to_nc, chunks):
+            pass  # progress is printed inside convert_to_nc
 
-# End option parsing
-grid = mht.Read_grid(itot, jtot, ktot, order = order)
 
-chunks = [variables[i::nprocs] for i in range(nprocs)]
+def _build_arg_parser():
+    cross_modes = ["xy", "xz", "yz"]
+    p = argparse.ArgumentParser(
+        description="Convert MicroHH binary cross-sections to netCDF4 files."
+    )
+    p.add_argument(
+        "-m",
+        "--modes",
+        nargs="*",
+        help="mode of the cross section",
+        choices=cross_modes,
+    )
+    p.add_argument("-f", "--filename", help="ini file name")
+    p.add_argument("-d", "--directory", help="directory")
+    p.add_argument("-v", "--vars", nargs="*", help="variable names")
+    p.add_argument("-x", "--index", nargs="*", help="indices", type=int)
+    p.add_argument(
+        "-t0", "--starttime", type=float, help="first time step to be parsed"
+    )
+    p.add_argument("-t1", "--endtime", type=float, help="last time step to be parsed")
+    p.add_argument(
+        "-tstep", "--sampletime", type=float, help="time interval to be parsed"
+    )
+    p.add_argument("-p", "--precision", help="precision", choices=["single", "double"])
+    p.add_argument("-n", "--nprocs", help="Number of processes", type=int, default=1)
+    p.add_argument(
+        "-c",
+        "--nocompression",
+        help="do not compress the netcdf file",
+        action="store_true",
+    )
+    p.add_argument("-o", "--order", help="order", choices=[2, 4], type=int)
+    return p
 
-pool = Pool(processes=nprocs)
 
-pool.imap_unordered(convert_to_nc, chunks)
+def main():
+    args = _build_arg_parser().parse_args()
+    run(
+        directory=args.directory,
+        filename=args.filename,
+        vars=args.vars,
+        modes=args.modes,
+        indexes=args.index,
+        precision=args.precision,
+        order=args.order,
+        starttime=args.starttime,
+        endtime=args.endtime,
+        sampletime=args.sampletime,
+        nocompression=args.nocompression,
+        nprocs=args.nprocs,
+    )
 
-pool.close()
-pool.join()
+
+if __name__ == "__main__":
+    main()
