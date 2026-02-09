@@ -83,12 +83,56 @@ def _find_namelist_file():
 # Classes and functions to read and write MicroHH things
 # -------------------------
 
+class _NamelistGroup:
+    """ Helper class to allow attribute-style access to namelist group items """
+    
+    def __init__(self, group_dict):
+        self._data = group_dict
+    
+    def __getattr__(self, name):
+        if name.startswith('_'):
+            return object.__getattribute__(self, name)
+        if name in self._data:
+            return self._data[name]
+        raise AttributeError(f'Can\'t find variable "{name}" in namelist group')
+    
+    def __getitem__(self, name):
+        return self._data[name]
+    
+    def __setattr__(self, name, value):
+        if name.startswith('_'):
+            object.__setattr__(self, name, value)
+        else:
+            self._data[name] = value
+    
+    def __repr__(self):
+        return repr(self._data)
+    
+    def keys(self):
+        return self._data.keys()
+    
+    def items(self):
+        return self._data.items()
+    
+    def values(self):
+        return self._data.values()
+    
+    def get(self, name, default=None):
+        return self._data.get(name, default)
+
+
 class Read_namelist:
     """ Reads a MicroHH .ini file to memory
         All available variables are accessible as e.g.:
             nl = Read_namelist()    # with no name specified, it searches for a .ini file in the current dir
             itot = nl['grid']['itot']
             enttime = nl['time']['endtime']
+        Or using the get() method with optional default:
+            itot = nl.get('grid', 'itot', default=1)
+            endtime = nl.get('time', 'endtime', default=0)
+        Or using attribute-style access:
+            itot = nl.grid.itot
+            endtime = nl.time.endtime
     """
 
     def __init__(self,  namelist_file=None, ducktype=True):
@@ -122,6 +166,28 @@ class Read_namelist:
             raise RuntimeError(
                 'Can\'t find group \"{}\" in .ini file'.format(name))
 
+    def __getattr__(self, name):
+        """
+        Get group with `nl.group_name` syntax
+        """
+        if name == 'groups':
+            return object.__getattribute__(self, 'groups')
+        if name in self.groups:
+            return _NamelistGroup(self.groups[name])
+        raise AttributeError(f'Can\'t find group "{name}" in .ini file')
+
+    def get(self, group, variable=None, default=None):
+        """
+        Get value with optional default, similar to dict.get()
+        If only group is given, returns the group dict or default
+        If variable is also given, returns the variable value or default
+        """
+        if variable is None:
+            return self.groups.get(group, default)
+        else:
+            if group in self.groups:
+                return self.groups[group].get(variable, default)
+            return default
 
     def __repr__(self):
         """
@@ -151,7 +217,6 @@ class Read_namelist:
             else:
                 if variable in self.groups[group]:
                     self.groups[group].pop(variable)
-
 
 
     def save(self, namelist_file, allow_overwrite=False):
