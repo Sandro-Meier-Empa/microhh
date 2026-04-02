@@ -30,9 +30,32 @@ from multiprocessing import Pool, set_start_method
 import platform
 
 if platform.system() == 'Darwin':
-    set_start_method('fork')
+    try:
+        set_start_method("fork")
+    except RuntimeError:
+        pass
 
-def convert_to_nc(variables):
+
+def convert_to_nc_worker(args_tuple):
+    """
+    Worker function for multiprocessing.
+    Unpacks arguments and calls the actual conversion.
+    """
+    variables, config = args_tuple
+
+    # Extract config for local scope
+    modes = config["modes"]
+    starttime = config["starttime"]
+    iotimeprec = config["iotimeprec"]
+    indexes = config["indexes"]
+    itot, jtot, ktot = config["itot"], config["jtot"], config["ktot"]
+    grid = config["grid"]
+    precision = config["precision"]
+    compression = config["compression"]
+    overwrite = config["overwrite"]
+    endtime = config["endtime"]
+    sampletime = config["sampletime"]
+
     # Loop over the different variables and crosssections
     for variable in variables:
         for mode in modes:
@@ -47,10 +70,18 @@ def convert_to_nc(variables):
                     at_surface = False
 
                 filename = "{0}.{1}.nc".format(variable, mode)
+                if os.path.isfile(filename):
+                    if overwrite:
+                        os.remove(filename)
+                        print("Overwriting %s" % filename)
+                    else:
+                        print("%s already exists. Skipping..." % filename)
+                        continue
+
                 halflevel = '000'
                 if not at_surface:
                     if indexes is None:
-                        indexes_local,halflevel = mht.get_cross_indices(variable, mode)
+                        indexes_local, halflevel = mht.get_cross_indices(variable, mode)
                     else:
                         indexes_local = indexes
 
@@ -86,6 +117,7 @@ def convert_to_nc(variables):
                     dim['yh'] = dim.pop('y')
                 if halflevel[2] == '1':
                     dim['zh'] = dim.pop('z')
+
                 ncfile = mht.Create_ncfile(
                     grid, filename, variable, dim, precision, compression)
 
@@ -98,9 +130,8 @@ def convert_to_nc(variables):
                 for t, time in enumerate(np.arange(starttime, endtime + sampletime, sampletime)):
                     for k in range(len(indexes_local)):
                         index = indexes_local[k]
-                        otime = int(
-                            round(
-                                (time) / 10**iotimeprec))
+                        otime = int(round((time) / 10**iotimeprec))
+
                         if at_surface:
                             f_in = "{0}.{1}.{2}.{3:07d}".format(
                                 variable, mode, halflevel, otime)
@@ -110,12 +141,13 @@ def convert_to_nc(variables):
                         try:
                             fin = mht.Read_binary(grid, f_in)
                         except Exception as ex:
-                            print (ex)
+                            print(ex)
                             break
 
                         print(
-                            "Processing %8s, time=%7i, index=%4i" %
-                            (variable, otime, index))
+                            "Processing %8s, time=%7i, index=%4i"
+                            % (variable, otime, index)
+                        )
 
                         ncfile.dimvar['time'][t] = time
 
@@ -136,19 +168,20 @@ def convert_to_nc(variables):
                 print("Failed to create %s" % filename)
 
 
-def run(
+def run_conversion(
+    filename,
     directory=None,
-    filename=None,
-    vars=None,
     modes=None,
+    variables=None,
     indexes=None,
-    precision=None,
-    order=None,
     starttime=None,
     endtime=None,
     sampletime=None,
-    nocompression=False,
-    nprocs=None,
+    precision="single",
+    nprocs=1,
+    compression=True,
+    order=None,
+    overwrite=False,
 ):
     """
     Run the MicroHH cross-section binary -> NetCDF conversion.
@@ -172,27 +205,22 @@ def run(
         os.chdir(directory)
 
     # 2) Namelist
-    if not filename:
-        raise ValueError("filename (namelist ini) must be provided")
     nl = mht.Read_namelist(filename)
+
     itot = nl["grid"]["itot"]
     jtot = nl["grid"]["jtot"]
     ktot = nl["grid"]["ktot"]
 
     # 3) Time settings
-    starttime = starttime if starttime is not None else nl["time"]["starttime"]
-    endtime = endtime if endtime is not None else nl["time"]["endtime"]
-    sampletime = sampletime if sampletime is not None else nl["cross"]["sampletime"]
-
-    try:
-        iotimeprec = nl["time"]["iotimeprec"]
-    except KeyError:
-        iotimeprec = 0.0
+    starttime = float(starttime) if starttime is not None else nl["time"]["starttime"]
+    endtime = float(endtime) if endtime is not None else nl["time"]["endtime"]
+    sampletime = (
+        float(sampletime) if sampletime is not None else nl["cross"]["sampletime"]
+    )
 
     # 4) Modes
     if modes is None:
-        modes = list(nl["cross"].keys() & set(cross_modes))
-        # Check if there are paths in the cross-list
+        modes = list(nl["cross"].keys() & cross_modes)
         if "xy" not in modes:
             for v in np.atleast_1d(nl["cross"]["crosslist"]):
                 if "path" in v:
@@ -200,101 +228,99 @@ def run(
                     break
 
     # 5) Variables
-    variables = vars if vars is not None else nl["cross"]["crosslist"]
-    if isinstance(variables, str):
+    iotimeprec = nl["time"].get("iotimeprec", 0.0)
+
+    if variables is None:
+        variables = nl["cross"]["crosslist"]
+
+    if not isinstance(variables, list):
         variables = [variables]
 
-    # 6) Other settings
-    try:
-        order = order if order is not None else nl["grid"]["swspatialorder"]
-    except KeyError:
-        order = 2
+    if order is None:
+        order = nl["grid"].get("swspatialorder", 2)
 
-    compression = not nocompression
-    nprocs = nprocs if nprocs is not None else len(variables)
-
-    # promote to globals used by convert_to_nc
-    globals().update(
-        {
-            "itot": itot,
-            "jtot": jtot,
-            "ktot": ktot,
-            "starttime": starttime,
-            "endtime": endtime,
-            "sampletime": sampletime,
-            "iotimeprec": iotimeprec,
-            "modes": modes,
-            "indexes": indexes,
-            "precision": precision,
-            "compression": compression,
-        }
-    )
-
-    # 7) Grid
     grid = mht.Read_grid(itot, jtot, ktot, order=order)
-    globals().update({"grid": grid})
 
-    # 8) Parallel chunks
-    chunks = [variables[i::nprocs] for i in range(max(1, nprocs))]
+    # Bundle configuration for workers
+    config = {
+        "modes": modes,
+        "starttime": starttime,
+        "endtime": endtime,
+        "sampletime": sampletime,
+        "iotimeprec": iotimeprec,
+        "indexes": indexes,
+        "itot": itot,
+        "jtot": jtot,
+        "ktot": ktot,
+        "grid": grid,
+        "precision": precision,
+        "compression": compression,
+        "overwrite": overwrite,
+    }
 
-    # 9) Run
+    nprocs = min(nprocs, len(variables))
+    chunks = [(variables[i::nprocs], config) for i in range(nprocs)]
+
     with Pool(processes=nprocs) as pool:
-        for _ in pool.imap_unordered(convert_to_nc, chunks):
-            pass  # progress is printed inside convert_to_nc
+        pool.map(convert_to_nc_worker, chunks)
 
 
-def _build_arg_parser():
-    cross_modes = ["xy", "xz", "yz"]
-    p = argparse.ArgumentParser(
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
         description="Convert MicroHH binary cross-sections to netCDF4 files."
     )
-    p.add_argument(
+    parser.add_argument(
         "-m",
         "--modes",
         nargs="*",
         help="mode of the cross section",
-        choices=cross_modes,
+        choices=["xy", "xz", "yz"],
     )
-    p.add_argument("-f", "--filename", help="ini file name")
-    p.add_argument("-d", "--directory", help="directory")
-    p.add_argument("-v", "--vars", nargs="*", help="variable names")
-    p.add_argument("-x", "--index", nargs="*", help="indices", type=int)
-    p.add_argument(
-        "-t0", "--starttime", type=float, help="first time step to be parsed"
+    parser.add_argument("-f", "--filename", help="ini file name", required=True)
+    parser.add_argument("-d", "--directory", help="directory")
+    parser.add_argument("-v", "--vars", nargs="*", help="variable names")
+    parser.add_argument("-x", "--index", nargs="*", help="indices", type=int)
+    parser.add_argument("-t0", "--starttime", help="first time step to be parsed")
+    parser.add_argument("-t1", "--endtime", help="last time step to be parsed")
+    parser.add_argument("-tstep", "--sampletime", help="time interval to be parsed")
+    parser.add_argument(
+        "-p",
+        "--precision",
+        help="precision",
+        choices=["single", "double"],
+        default="single",
     )
-    p.add_argument("-t1", "--endtime", type=float, help="last time step to be parsed")
-    p.add_argument(
-        "-tstep", "--sampletime", type=float, help="time interval to be parsed"
+    parser.add_argument(
+        "-n", "--nprocs", help="Number of processes", type=int, default=1
     )
-    p.add_argument("-p", "--precision", help="precision", choices=["single", "double"])
-    p.add_argument("-n", "--nprocs", help="Number of processes", type=int, default=1)
-    p.add_argument(
+    parser.add_argument(
         "-c",
         "--nocompression",
         help="do not compress the netcdf file",
         action="store_true",
     )
-    p.add_argument("-o", "--order", help="order", choices=[2, 4], type=int)
-    return p
+    parser.add_argument(
+        "-w",
+        "--overwrite",
+        help="overwrite existing output netcdf files",
+        action="store_true",
+    )
+    parser.add_argument("-o", "--order", help="order", choices=[2, 4], type=int)
 
+    args = parser.parse_args()
 
-def main():
-    args = _build_arg_parser().parse_args()
-    run(
-        directory=args.directory,
+    run_conversion(
         filename=args.filename,
-        vars=args.vars,
+        directory=args.directory,
         modes=args.modes,
+        variables=args.vars,
         indexes=args.index,
-        precision=args.precision,
-        order=args.order,
         starttime=args.starttime,
         endtime=args.endtime,
         sampletime=args.sampletime,
-        nocompression=args.nocompression,
+        precision=args.precision,
         nprocs=args.nprocs,
+        compression=not args.nocompression,
+        order=args.order,
+        overwrite=args.overwrite,
     )
-
-
-if __name__ == "__main__":
-    main()
