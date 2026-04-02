@@ -25,16 +25,46 @@ import argparse
 import os
 import glob
 import struct
-import time as tm
 import numpy as np
-from multiprocessing import Pool
+from multiprocessing import Pool, set_start_method
+import platform
+
+if platform.system() == "Darwin":
+    try:
+        set_start_method("fork")
+    except RuntimeError:
+        pass
 
 
-def convert_to_nc(variables):
+def convert_to_nc_worker(args_tuple):
+    variables, config = args_tuple
+
+    itot = config["itot"]
+    jtot = config["jtot"]
+    kmax = config["kmax"]
+    starttime = config["starttime"]
+    endtime = config["endtime"]
+    sampletime = config["sampletime"]
+    iotimeprec = config["iotimeprec"]
+    doubledump = config["doubledump"]
+    grid = config["grid"]
+    precision = config["precision"]
+    perslice = config["perslice"]
+    compression = config["compression"]
+    overwrite = config["overwrite"]
+
     half_level_vars = ["w", "lflx", "sflx"]
-
     for variable in variables:
         filename = "{0}.nc".format(variable)
+
+        if os.path.isfile(filename):
+            if overwrite:
+                os.remove(filename)
+                print("Overwriting %s" % filename)
+            else:
+                print("%s already exists. Skipping..." % filename)
+                continue
+
         dim = {"time": [], "z": range(kmax), "y": range(jtot), "x": range(itot)}
         if variable == "u":
             dim["xh"] = dim.pop("x")
@@ -71,13 +101,14 @@ def convert_to_nc(variables):
             for t, time in enumerate(
                 np.arange(starttime, endtime + sampletime, sampletime)
             ):
-                otime = round(time / 10**iotimeprec)
+                otime = int(round(time / 10**iotimeprec))
                 if doubledump and t > 0:
-                    timedata = struct.unpack(
-                        "=QQi", open("time.{0:07d}".format(otime), "rb").read()
-                    )
-                    otime2 = round(
-                        (timedata[0] - timedata[1]) * 10 ** (-iotimeprec - 9) - 0.5
+                    with open("time.{0:07d}".format(otime), "rb") as file_handle:
+                        timedata = struct.unpack("=QQi", file_handle.read())
+                    otime2 = int(
+                        round(
+                            (timedata[0] - timedata[1]) * 10 ** (-iotimeprec - 9) - 0.5
+                        )
                     )
                     convert(otime2, tout)
                     tout += 1
@@ -94,19 +125,20 @@ def convert_to_nc(variables):
             print("Failed to create %s" % filename)
 
 
-def run(
+def run_conversion(
+    filename,
     directory=None,
-    filename=None,
-    vars=None,
-    precision=None,
+    variables=None,
+    precision="single",
     order=None,
     starttime=None,
     endtime=None,
     sampletime=None,
     perslice=False,
-    nocompression=False,
+    compression=True,
     kmax=None,
-    nprocs=None,
+    nprocs=1,
+    overwrite=False,
 ):
     """
     Run the MicroHH 3D binary -> NetCDF conversion.
@@ -127,128 +159,127 @@ def run(
     if directory is not None:
         os.chdir(directory)
 
-    # 2) Namelist
-    if not filename:
-        raise ValueError("filename (namelist ini) must be provided")
     nl = mht.Read_namelist(filename)
+
     itot = nl["grid"]["itot"]
     jtot = nl["grid"]["jtot"]
     ktot = nl["grid"]["ktot"]
-    kmax_local = min(kmax if kmax is not None else ktot, ktot)
 
-    # 3) Time & dump settings
-    starttime = starttime if starttime is not None else nl["time"]["starttime"]
-    endtime = endtime if endtime is not None else nl["time"]["endtime"]
-    sampletime = sampletime if sampletime is not None else nl["dump"]["sampletime"]
-    try:
-        doubledump = nl["dump"]["swdoubledump"] == 1
-    except Exception:
-        doubledump = False
-
-    try:
-        iotimeprec = nl["time"]["iotimeprec"]
-    except KeyError:
-        iotimeprec = 0.0
-
-    variables = vars if vars is not None else nl["dump"]["dumplist"]
-    if isinstance(variables, str):
-        variables = [variables]
-
-    # promote to globals used by convert_to_nc
-    globals().update(
-        {
-            "itot": itot,
-            "jtot": jtot,
-            "ktot": ktot,
-            "kmax": kmax_local,
-            "starttime": starttime,
-            "endtime": endtime,
-            "sampletime": sampletime,
-            "doubledump": doubledump,
-            "iotimeprec": iotimeprec,
-            "precision": precision,
-            "perslice": perslice,
-            "compression": not nocompression,
-        }
+    kmax = ktot if kmax is None else min(kmax, ktot)
+    starttime = float(starttime) if starttime is not None else nl["time"]["starttime"]
+    endtime = float(endtime) if endtime is not None else nl["time"]["endtime"]
+    sampletime = (
+        float(sampletime) if sampletime is not None else nl["dump"]["sampletime"]
     )
 
-    try:
-        order = order if order is not None else nl["grid"]["swspatialorder"]
-    except KeyError:
-        order = 2
+    doubledump = nl["dump"].get("swdoubledump", 0) == 1
+    iotimeprec = nl["time"].get("iotimeprec", 0.0)
 
-    # 4) Truncate endtime to last available dump
+    if variables is None:
+        variables = nl["dump"]["dumplist"]
+    if not isinstance(variables, list):
+        variables = [variables]
+    if len(variables) == 0:
+        return
+
+    if order is None:
+        order = nl["grid"].get("swspatialorder", 2)
+
     for time in np.arange(starttime, endtime, sampletime):
         otime = int(round(time / 10**iotimeprec))
         if not glob.glob("*.{0:07d}".format(otime)):
             endtime = time - sampletime
             break
-    globals().update({"endtime": endtime})
 
-    # 5) Grid
     grid = mht.Read_grid(itot, jtot, ktot, order=order)
-    if kmax_local < ktot:
-        grid.dim["z"] = grid.dim["z"][:kmax_local]
-        grid.dim["zh"] = grid.dim["zh"][: kmax_local + 1]
-    globals().update({"grid": grid})
 
-    # 6) Parallel chunks
-    nprocs = nprocs if nprocs is not None else len(variables)
-    chunks = [variables[i::nprocs] for i in range(max(1, nprocs))]
+    if kmax < ktot:
+        grid.dim["z"] = grid.dim["z"][:kmax]
+        grid.dim["zh"] = grid.dim["zh"][: kmax + 1]
 
-    # 7) Run
+    config = {
+        "itot": itot,
+        "jtot": jtot,
+        "kmax": kmax,
+        "starttime": starttime,
+        "endtime": endtime,
+        "sampletime": sampletime,
+        "iotimeprec": iotimeprec,
+        "doubledump": doubledump,
+        "grid": grid,
+        "precision": precision,
+        "perslice": perslice,
+        "compression": compression,
+        "overwrite": overwrite,
+    }
+
+    nprocs = max(1, min(nprocs, len(variables)))
+    chunks = [(variables[i::nprocs], config) for i in range(nprocs)]
+
     with Pool(processes=nprocs) as pool:
-        for _ in pool.imap_unordered(convert_to_nc, chunks):
-            pass  # progress is printed inside convert_to_nc
+        pool.map(convert_to_nc_worker, chunks)
 
 
-def _build_arg_parser():
-    p = argparse.ArgumentParser(
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
         description="Convert MicroHH 3D binary to netCDF4 files."
     )
-    p.add_argument("-d", "--directory", help="directory")
-    p.add_argument("-f", "--filename", help="ini file name")
-    p.add_argument("-v", "--vars", nargs="*", help="variable names")
-    p.add_argument("-p", "--precision", choices=["single", "double"])
-    p.add_argument("-o", "--order", choices=[2, 4], type=int)
-    p.add_argument(
-        "-t0", "--starttime", type=float, help="first time step to be parsed"
+    parser.add_argument("-d", "--directory", help="directory")
+    parser.add_argument("-f", "--filename", help="ini file name", required=True)
+    parser.add_argument("-v", "--vars", nargs="*", help="variable names")
+    parser.add_argument(
+        "-p",
+        "--precision",
+        help="precision",
+        choices=["single", "double"],
+        default="single",
     )
-    p.add_argument("-t1", "--endtime", type=float, help="last time step to be parsed")
-    p.add_argument(
-        "-tstep", "--sampletime", type=float, help="time interval to be parsed"
+    parser.add_argument("-o", "--order", help="order", choices=[2, 4], type=int)
+    parser.add_argument(
+        "-t0", "--starttime", help="first time step to be parsed", type=float
     )
-    p.add_argument(
-        "-s", "--perslice", action="store_true", help="read/write per horizontal slice"
+    parser.add_argument(
+        "-t1", "--endtime", help="last time step to be parsed", type=float
     )
-    p.add_argument(
+    parser.add_argument(
+        "-tstep", "--sampletime", help="time interval to be parsed", type=float
+    )
+    parser.add_argument(
+        "-s", "--perslice", help="read/write per horizontal slice", action="store_true"
+    )
+    parser.add_argument(
         "-c",
         "--nocompression",
-        action="store_true",
         help="do not compress the netcdf file",
+        action="store_true",
     )
-    p.add_argument("-kmax", "--kmax", type=int, help="reduce vertical extent 3D files")
-    p.add_argument("-n", "--nprocs", type=int, help="Number of processes")
-    return p
+    parser.add_argument(
+        "-kmax", "--kmax", help="reduce vertical extent 3D files", type=int
+    )
+    parser.add_argument(
+        "-n", "--nprocs", help="Number of processes", type=int, default=1
+    )
+    parser.add_argument(
+        "-w",
+        "--overwrite",
+        help="overwrite existing output netcdf files",
+        action="store_true",
+    )
 
+    args = parser.parse_args()
 
-def main():
-    args = _build_arg_parser().parse_args()
-    run(
-        directory=args.directory,
+    run_conversion(
         filename=args.filename,
-        vars=args.vars,
+        directory=args.directory,
+        variables=args.vars,
         precision=args.precision,
         order=args.order,
         starttime=args.starttime,
         endtime=args.endtime,
         sampletime=args.sampletime,
         perslice=args.perslice,
-        nocompression=args.nocompression,
+        compression=not args.nocompression,
         kmax=args.kmax,
         nprocs=args.nprocs,
+        overwrite=args.overwrite,
     )
-
-
-if __name__ == "__main__":
-    main()
