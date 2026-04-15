@@ -172,8 +172,8 @@ def run_conversion(
         float(sampletime) if sampletime is not None else nl["dump"]["sampletime"]
     )
 
-    doubledump = nl["dump"].get("swdoubledump", 0) == 1
-    iotimeprec = nl["time"].get("iotimeprec", 0.0)
+    doubledump = nl.get("dump", default={}).get("swdoubledump", 0) == 1
+    iotimeprec = nl.get("time", default={}).get("iotimeprec", 0.0)
 
     if variables is None:
         variables = nl["dump"]["dumplist"]
@@ -213,7 +213,7 @@ def run_conversion(
         "overwrite": overwrite,
     }
 
-    nprocs = max(1, min(nprocs, len(variables)))
+    nprocs = max(nprocs, len(variables))
     chunks = [(variables[i::nprocs], config) for i in range(nprocs)]
 
     with Pool(processes=nprocs) as pool:
