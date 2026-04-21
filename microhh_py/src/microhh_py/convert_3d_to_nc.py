@@ -137,7 +137,7 @@ def run_conversion(
     perslice=False,
     compression=True,
     kmax=None,
-    nprocs=1,
+    nprocs=None,
     overwrite=False,
 ):
     """
@@ -213,7 +213,7 @@ def run_conversion(
         "overwrite": overwrite,
     }
 
-    nprocs = max(nprocs, len(variables))
+    nprocs = max(nprocs or 1, len(variables))
     chunks = [(variables[i::nprocs], config) for i in range(nprocs)]
 
     with Pool(processes=nprocs) as pool:
@@ -257,7 +257,7 @@ if __name__ == "__main__":
         "-kmax", "--kmax", help="reduce vertical extent 3D files", type=int
     )
     parser.add_argument(
-        "-n", "--nprocs", help="Number of processes", type=int, default=1
+        "-n", "--nprocs", help="Number of processes", type=int, default=None
     )
     parser.add_argument(
         "-w",
