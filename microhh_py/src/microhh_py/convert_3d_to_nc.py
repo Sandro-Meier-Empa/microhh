@@ -23,7 +23,6 @@
 import microhh_py.microhh_tools as mht
 import argparse
 import os
-import glob
 import struct
 import numpy as np
 from multiprocessing import Pool, set_start_method
@@ -34,6 +33,21 @@ if platform.system() == "Darwin":
         set_start_method("fork")
     except RuntimeError:
         pass
+
+
+def _available_dump_times(directory="."):
+    available_times = set()
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            name = entry.name
+            if name.startswith(".") or not entry.is_file():
+                continue
+            if "." not in name:
+                continue
+            suffix = name.rsplit(".", 1)[-1]
+            if len(suffix) == 7 and suffix.isdigit():
+                available_times.add(int(suffix))
+    return available_times
 
 
 def convert_to_nc_worker(args_tuple):
@@ -185,9 +199,10 @@ def run_conversion(
     if order is None:
         order = nl["grid"].get("swspatialorder", 2)
 
+    available_times = _available_dump_times()
     for time in np.arange(starttime, endtime, sampletime):
         otime = int(round(time / 10**iotimeprec))
-        if not glob.glob("*.{0:07d}".format(otime)):
+        if otime not in available_times:
             endtime = time - sampletime
             break
 

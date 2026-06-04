@@ -384,11 +384,13 @@ class Read_binary:
         self.file.close()
 
     def read(self, n):
-        return np.array(
-            st.unpack(
-                '{0}{1}{2}'.format(
-                    self.en, n, self.prec), self.file.read(
-                    n * self.TF)))
+        dtype = np.dtype(f"{self.en}{self.prec}")
+        arr = np.fromfile(self.file, dtype=dtype, count=n)
+
+        if arr.size != n:
+            raise EOFError(f"Expected {n} values, got {arr.size}")
+
+        return arr
 
 
 class Create_ncfile():
